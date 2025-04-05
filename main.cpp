@@ -92,7 +92,7 @@ void buffer_clear(Buffer* buffer, uint32_t color)
     }
 }
 
-void buffer_sprite_draw(Buffer* buffer, const Sprite& sprite,
+void buffer_draw_sprite(Buffer* buffer, const Sprite& sprite,
     size_t x, size_t y, uint32_t color)
 {
     for (size_t xi = 0; xi < sprite.width; ++xi)
@@ -109,6 +109,59 @@ void buffer_sprite_draw(Buffer* buffer, const Sprite& sprite,
                 buffer->data[sy * buffer->width + sx] = color;
             }
         }
+    }
+}
+
+// We define a new spritesheet containing 65 5x7 ASCII character sprites starting from 'space',
+// which has the value of 32 in ASCII, up to character '`', which has ASCII value 96.
+// Note that we only include uppercase letters and a few special characters.
+void buffer_draw_text(Buffer* buffer, const Sprite& text_spritesheet, const char* text,
+    size_t x, size_t y, uint32_t color)
+{
+    size_t xp = x;
+    size_t stride = text_spritesheet.width * text_spritesheet.height;
+    Sprite sprite;
+    sprite.height = text_spritesheet.height;
+    sprite.width = text_spritesheet.width;
+
+    for (auto charp = text; *charp != '\0'; ++charp)
+    {
+        char character = *charp - 32;
+        if (character < 0 || character >= 65) continue;
+
+        sprite.data = std::vector(text_spritesheet.data.begin() + character * stride,
+            text_spritesheet.data.begin() + (character + 1) * stride);
+        buffer_draw_sprite(buffer, sprite, xp, y, color);
+        xp += sprite.width + 1;
+    }
+}
+
+void buffer_draw_number(Buffer* buffer, const Sprite& number_spritesheet, size_t number,
+    size_t x, size_t y, uint32_t color)
+{
+    std::array<uint8_t, 64> digits;
+    size_t num_digits = 0;
+
+    size_t current_number = number;
+    do
+    {
+        digits[num_digits++] = current_number % 10;
+        current_number = current_number / 10;
+    } while (current_number > 0);
+    
+    size_t xp = x;
+    size_t stride = number_spritesheet.width * number_spritesheet.height;
+    Sprite sprite;
+    sprite.height = number_spritesheet.height;
+    sprite.width = number_spritesheet.width;
+
+    for (size_t i = 0; i < num_digits; ++i)
+    {
+        auto digit = digits[num_digits - i - 1];
+        sprite.data = std::vector(number_spritesheet.data.begin() + digit * stride, 
+            number_spritesheet.data.begin() + (digit + 1) * stride);
+        buffer_draw_sprite(buffer, sprite, xp, y, color);
+        xp += sprite.width + 1;
     }
 }
 
@@ -152,6 +205,7 @@ void error_callback(int error, const char* description)
 bool game_running = false;
 int move_dir = 0;
 bool fire_pressed = 0;
+size_t score = 0;
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action,
     int modes /* Shift, Ctrl, etc. */)
@@ -178,6 +232,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action,
 }
 
 // https://nicktasios.nl/posts/space-invaders-from-scratch-part-1.html
+// https://github.com/Grieverheart/space_invaders
 
 int main(int argc, char** argv)
 {
@@ -446,6 +501,87 @@ void main(void) {
         1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
     };
 
+    Sprite text_spritesheet;
+    text_spritesheet.width = 5;
+    text_spritesheet.height = 7;
+    text_spritesheet.data = std::vector<uint8_t> // 65 chars x 35 pixels each
+    {
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,
+        0,1,0,1,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,1,0,1,0,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,0,1,0,1,0,
+        0,0,1,0,0,0,1,1,1,0,1,0,1,0,0,0,1,1,1,0,0,0,1,0,1,0,1,1,1,0,0,0,1,0,0,
+        1,1,0,1,0,1,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,1,0,1,0,1,1,
+        0,1,1,0,0,1,0,0,1,0,1,0,0,1,0,0,1,1,0,0,1,0,0,1,0,1,0,0,0,1,0,1,1,1,1,
+        0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,
+        1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,
+        0,0,1,0,0,1,0,1,0,1,0,1,1,1,0,0,0,1,0,0,0,1,1,1,0,1,0,1,0,1,0,0,1,0,0,
+        0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,1,1,1,1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
+        0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,
+
+        0,1,1,1,0,1,0,0,0,1,1,0,0,1,1,1,0,1,0,1,1,1,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        0,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0,
+        0,1,1,1,0,1,0,0,0,1,0,0,0,0,1,0,0,1,1,0,0,1,0,0,0,1,0,0,0,0,1,1,1,1,1,
+        1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        0,0,0,1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,0,1,1,1,1,1,0,0,0,1,0,0,0,0,1,0,
+        1,1,1,1,1,1,0,0,0,0,1,1,1,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+
+        0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,
+        0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,
+        0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,
+        1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,
+        0,1,1,1,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,1,0,1,1,1,0,1,1,1,0,1,0,0,1,0,0,0,1,0,1,1,1,0,
+
+        0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,
+        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,1,1,0,
+        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,
+        1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1,
+        1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,1,1,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,
+        0,1,1,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0,
+        0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,1,0,0,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1,
+        1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1,
+        1,0,0,0,1,1,1,0,1,1,1,0,1,0,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,
+        1,0,0,0,1,1,0,0,0,1,1,1,0,0,1,1,0,1,0,1,1,0,0,1,1,1,0,0,0,1,1,0,0,0,1,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,0,1,1,0,1,1,1,1,
+        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,0,0,0,0,1,0,1,1,1,0,
+        1,1,1,1,1,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,
+        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,
+        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,1,0,1,1,1,0,1,1,1,0,0,0,1,
+        1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,0,0,0,1,
+        1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,
+        1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,1,1,1,1,
+
+        0,0,0,1,1,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,1,
+        0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,
+        1,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,1,1,0,0,0,
+        0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,
+        0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    };
+
+    Sprite number_spritesheet;
+    number_spritesheet.width = 5;
+    number_spritesheet.height = 7;
+    number_spritesheet.data = std::vector(text_spritesheet.data.begin() + 16 * 35, text_spritesheet.data.end());
+
     Sprite bullet_sprite;
     bullet_sprite.width = 1;
     bullet_sprite.height = 3;
@@ -489,6 +625,23 @@ void main(void) {
     {
         buffer_clear(&buffer, clear_color);
 
+        buffer_draw_text(&buffer, text_spritesheet, "SCORE", 4,
+            game.height - text_spritesheet.height - 7, rgb_to_uint32(128, 0, 0));
+        
+        buffer_draw_number(&buffer, number_spritesheet, score,
+            4 + 2 * number_spritesheet.width,
+            game.height - 2 * number_spritesheet.height - 12,
+            rgb_to_uint32(128, 0, 0));
+        
+        // Credits and a horizontal line above the credit text
+        buffer_draw_text(&buffer, text_spritesheet, "CREDIT 00", 164, 7,
+            rgb_to_uint32(128, 0, 0));
+        
+        for (size_t i = 0; i < game.width; ++i)
+        {
+            buffer.data[game.width * 16 + i] = rgb_to_uint32(128, 0, 0);
+        }
+
         for (size_t ai = 0; ai < game.num_aliens; ++ai)
         {
             /* If an alien is dead, we decrement the death counter,
@@ -502,7 +655,7 @@ void main(void) {
 
             if (alien.type == ALIEN_DEAD)
             {
-                buffer_sprite_draw(&buffer, alien_death_sprite, alien.x, alien.y,
+                buffer_draw_sprite(&buffer, alien_death_sprite, alien.x, alien.y,
                     rgb_to_uint32(128, 0, 0));
             }
             else
@@ -510,7 +663,7 @@ void main(void) {
                 const auto& animation = alien_animation[alien.type - 1];
                 size_t current_frame = animation.time / animation.frame_duration;
                 const auto& sprite = animation.frames[current_frame];
-                buffer_sprite_draw(&buffer, sprite, alien.x, alien.y,
+                buffer_draw_sprite(&buffer, sprite, alien.x, alien.y,
                     rgb_to_uint32(128, 0, 0));
             }
         }
@@ -519,10 +672,10 @@ void main(void) {
         {
             const auto& bullet = game.bullets[bi];
             const auto& sprite = bullet_sprite;
-            buffer_sprite_draw(&buffer, sprite, bullet.x, bullet.y, rgb_to_uint32(128, 0, 0));
+            buffer_draw_sprite(&buffer, sprite, bullet.x, bullet.y, rgb_to_uint32(128, 0, 0));
         }
 
-        buffer_sprite_draw(&buffer, player_sprite, game.player.x, game.player.y,
+        buffer_draw_sprite(&buffer, player_sprite, game.player.x, game.player.y,
             rgb_to_uint32(128, 0, 0));
 
         
@@ -581,6 +734,7 @@ void main(void) {
 
                 if (overlap)
                 {
+                    score += 10 * (AlienType::N - alien.type);
                     alien.type = ALIEN_DEAD;
                     // NOTE: Hack to recenter death sprite
                     alien.x -=  (alien_death_sprite.width - alien_sprite.width) / 2;
@@ -627,9 +781,6 @@ void main(void) {
     glfwDestroyWindow(window);
     glfwTerminate();
     glDeleteVertexArrays(1, &fullscreen_triangle_vao);
-
-    // delete[] alien_sprite.data;
-    // delete[] buffer.data;
 
     return 0;
 }
